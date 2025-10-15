@@ -22,8 +22,8 @@ def get_translator():
     return pipeline(task="translation", model="Helsinki-NLP/opus-mt-en-de")
     
             
-st.title("PDF-Zusammenfassen & Übersätzen")
-st.subheader("Englisch zu Deutsch Übersätzung")
+st.title("PDF-Zusammenfassen & Übersetzen")
+st.subheader("Englisch zu Deutsch Übersetzung")
 
 if "full_text" not in st.session_state:
     st.session_state.full_text = ""
