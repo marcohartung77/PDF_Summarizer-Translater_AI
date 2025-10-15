@@ -1,75 +1,104 @@
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
-from transformers import pipeline 
-
-#translator = pipeline(task='translation', model='Helsinki-NLP/opus-mt-en-ru', use_safetensors=True)
-#text = 'Artificial intelligence is changing the world!'
-#result = translator(text)
-#print(result[0]['translation_text'])
-
-
-
-
-import io
-import fitz  # PyMuPDF
+from transformers import pipeline
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+import fitz
+import io
 
-MODEL_ID = "sshleifer/distilbart-cnn-12-6"  # kleiner & schneller als bart-large-cnn
+def extract_text_from_pdf(file):
+    with fitz.open(stream=io.BytesIO(file.read()), filetype="pdf") as doc:
+        seiten_text = []
+        for seite in doc:
+            text_der_seite = seite.get_text("text")
+            seiten_text.append(text_der_seite)
+        gesamter_text = "\n".join(seiten_text)
+        gesamter_text = gesamter_text.strip()
+        return gesamter_text
 
-def extract_text_from_pdf(file) -> str:
-    try:
-        file.seek(0)
-    except Exception:
-        pass
-    data = file.read()
-    if not data:
-        return ""
-    with fitz.open(stream=io.BytesIO(data), filetype="pdf") as doc:
-        texts = [p.get_text("text") for p in doc]
-    return "\n".join(texts).strip()
-
-@st.cache_resource(show_spinner=False)
+@st.cache_resource
 def get_summarizer():
-    tok = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
-    mdl = AutoModelForSeq2SeqLM.from_pretrained(
-        MODEL_ID,
-        use_safetensors=True,     # nur .safetensors laden
-        low_cpu_mem_usage=False,  # Lazy Loading AUS -> keine Meta-Tensors
-        device_map=None,          # nichts auf "meta" initialisieren
-        torch_dtype=None          # Standard FP32 auf CPU
-    )
-    return pipeline(
-        "summarization",
-        model=mdl,
-        tokenizer=tok,
-        device=-1   # CPU
-    )
-st.title("PDF zusammenfassen & (optional) übersetzen")
-uploaded = st.file_uploader("PDF auswählen", type=["pdf"])
+        return pipeline(task="summarization", model="facebook/bart-large-cnn")
 
-full_text = ""
-if uploaded:
-    full_text = extract_text_from_pdf(uploaded)
-    if full_text:
-        st.success(f"PDF geladen, {len(full_text)} Zeichen")
-        st.text_area("Extrahierter Text (Vorschau)", full_text[:5000], height=300)
-    else:
-        st.error("Kein extrahierbarer Text gefunden (evtl. Scan-PDF).")
+@st.cache_resource 
+def get_translator():
+    return pipeline(task="translation", model="Helsinki-NLP/opus-mt-en-de")
+    
+            
+st.title("PDF-Zusammenfassen & Übersätzen")
+st.subheader("Englisch zu Deutsch Übersätzung")
 
-if uploaded and full_text:
-    input_text = full_text[:2000]  # CPU-freundlich kürzen
-    if st.button("Zusammenfassung erstellen"):
-        with st.spinner("Erstelle Zusammenfassung..."):
-            summarizer = get_summarizer()
-            # Limits passend setzen, sonst meckert die Pipeline
-            summary = summarizer(
+if "full_text" not in st.session_state:
+    st.session_state.full_text = ""
+if "summary_text" not in st.session_state:
+    st.session_state.summary_text = ""
+if "translate_choice" not in st.session_state:
+    st.session_state.translate_choice = "Ausgangstext"
+if "uploaded_name" not in st.session_state:
+    st.session_state.uploaded_name = None
+if "translated_text" not in st.session_state:
+    st.session_state.translated_text = ""
+
+uploaded = st.file_uploader(label="PDF auswählen", type=["pdf"])
+if uploaded and uploaded.name != st.session_state.uploaded_name:
+    st.session_state.full_text = extract_text_from_pdf(uploaded)
+    st.session_state.uploaded_name = uploaded.name 
+    st.subheader("Text aus PDF:")
+    st.write(st.session_state.full_text)
+    st.session_state.summary_text = ""
+    st.session_state.translate_choice = "Ausgangstext"
+    
+if not st.session_state.full_text:
+    st.error("Kein extrahierbarer Text gefunden.")
+else:
+    st.success(f"PDF geladen mit {len(st.session_state.full_text)} Zeichen")
+    input_text = st.session_state.full_text[:2000] # Slicing-Operator
+
+if st.button("Zusammenfassung"):
+    with st.spinner("Erstelle Zusammenfassung..."):
+        summarizer = get_summarizer()
+        summary = summarizer(
             input_text,
-            max_length=220,
-            min_length=60,
-            do_sample=False,
-            truncation=True
-)   [0]["summary_text"]
- 
-            st.subheader("Zusammenfassung")
-            st.write(summary)
- 
+            min_length=30,
+            max_length=160,
+            do_sample=False
+        )
+    st.session_state.summary_text = summary[0]["summary_text"]
+    st.session_state.translate_choice = "Zusammenfassung"
+    
+    
+if st.session_state.summary_text:
+    st.subheader("Zusammenfassung")
+    st.write(st.session_state.summary_text)
+
+st.divider()
+choice = st.radio(
+    label="Was soll übersetzt werden?",
+    options=["Ausgangstext", "Zusammenfassung"],
+    key="translate_choice"
+)
+
+if st.button("Übersetzen"):
+    # Bestimmen welcher Text übersetzt werden soll:
+    if choice == "Zusammenfassung":
+        source_text = st.session_state.summary_text
+    else:
+        source_text = st.session_state.full_text
+    
+    # Prüfen ob Text vorhanden ist:
+    if not source_text.strip():
+        st.warning("Bitte erst ein PDF laden oder eine Zusammenfassung erstellen")
+    else:
+        with st.spinner("Übersetze..."):
+            translator = get_translator()
+            result = translator(source_text)
+            st.session_state.translated_text = result[0]["translation_text"]
+            st.subheader("Übersetzung")
+            st.write(st.session_state.translated_text)
+            
+    # Download Button Logik:
+    if st.session_state.translated_text:
+        filename = f"Übersetzung_{st.session_state.translate_choice.lower()}.txt"
+        st.download_button(
+            label="Übersetzung downloaden",
+            data=st.session_state.translated_text,
+            file_name=filename,
+            mime="text/plain"
+        )  
