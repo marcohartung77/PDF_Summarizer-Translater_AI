@@ -1,17 +1,19 @@
 streamlit==1.39.0
 
-# HF + Tokenizer Stack (versionen, die auf Streamlit Cloud sauber laufen)
+# HF + Tokenizer
 transformers==4.44.2
 tokenizers==0.19.1
 huggingface-hub==0.24.6
 safetensors==0.4.3
 accelerate==0.33.0
+sentencepiece==0.2.0      # nötig für viele Tokenizer, schadet nie
 
-# Für Modelle mit SentencePiece (mT5, mBART, XLM-R, mDeBERTa, T5, etc.)
-sentencepiece==0.2.0
-
-# CPU-PyTorch (keine CUDA-Probleme)
+# CPU-PyTorch (keine CUDA)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.4.1+cpu
 
- 
+# PDF-Stack (robust)
+pdfplumber==0.11.4
+pypdf==5.0.1
+
+
